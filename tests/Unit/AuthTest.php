@@ -1,140 +1,87 @@
 <?php
 
-namespace Tests\Unit;
+namespace Tests\Feature;
 
 use App\Models\User;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Auth;
-use Symfony\Component\HttpFoundation\Response;
+use DB;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use \Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 class AuthTest extends TestCase
 {
-    protected $mockUser;
-
-    public function setUp(): void
-    {
-        parent::setUp();
-
-        $this->mockUser = new User([
-            'name' => 'Admin User',
-            'email' => env('DEFAULT_EMAIL', 'admin@teste.com'),
-            'password' => Hash::make(env('DEFAULT_PASSWORD', 'admMyCommands@2025!')),
-            'profile_id' => 1,
-        ]);
-    }
+    use RefreshDatabase;
 
     public function test_admin_can_login()
     {
-        Auth::shouldReceive('attempt')
-            ->once()
-            ->with([
-                'email' => env('DEFAULT_EMAIL', 'admin@teste.com'),
-                'password' => env('DEFAULT_PASSWORD', 'admMyCommands@2025!'),
-            ])
-            ->andReturn(true);
-
-        Auth::shouldReceive('user')
-            ->once()
-            ->andReturn($this->mockUser);
-
-        $response = $this->postJson('/api/login', [
-            'email' => env('DEFAULT_EMAIL', 'admin@teste.com'),
-            'password' => env('DEFAULT_PASSWORD', 'admMyCommands@2025!'),
+        $response = $this->post('/api/login', [
+            'email' => env("DEFAULT_EMAIL"),
+            'password' => env("DEFAULT_PASSWORD")
         ]);
 
-        $response->assertStatus(Response::HTTP_OK)
-            ->assertJsonStructure([
-                'message',
-                'status',
-                'data' => [
-                    'name',
-                    'profile',
-                    'permissions',
-                    'token',
-                ],
-            ])->assertJson([
-                'message' => 'Autorizado',
-                'status' => Response::HTTP_OK,
-                'data' => [
-                    'name' => 'Admin User',
-                    'profile' => 'ADMIN',
-                ],
-            ]);
+        $response->assertStatus(Response::HTTP_OK)->assertJson([
+            'message' => "Autorizado",
+            'status' => Response::HTTP_OK,
+            'data' => [
+                "name" => true,
+                "profile" => "ADMIN",
+                "permissions" => true,
+                "token" => true
+            ]
+        ]);
     }
 
     public function test_admin_can_not_login_with_invalid_credentials()
     {
-        Auth::shouldReceive('attempt')
-            ->once()
-            ->with([
-                'email' => env('DEFAULT_EMAIL', 'admin@teste.com'),
-                'password' => 'wrong-password',
-            ])
-            ->andReturn(false);
-
-        $response = $this->postJson('/api/login', [
-            'email' => env('DEFAULT_EMAIL', 'admin@teste.com'),
-            'password' => 'wrong-password',
+        $response = $this->post('/api/login', [
+            'email' => env("DEFAULT_EMAIL"),
+            'password' => "1234567"
         ]);
 
-        $response->assertStatus(Response::HTTP_UNAUTHORIZED)
-            ->assertJson([
-                'message' => 'Não autorizado. Credenciais incorretas',
-                'status' => Response::HTTP_UNAUTHORIZED,
-            ]);
+        $response->assertStatus(Response::HTTP_UNAUTHORIZED)->assertJson([
+            'message' => "Não autorizado. Credenciais incorretas",
+            'status' => Response::HTTP_UNAUTHORIZED
+        ]);
     }
 
     public function test_admin_can_not_login_without_email()
     {
-        $response = $this->postJson('/api/login', [
-            'password' => env('DEFAULT_PASSWORD', 'admMyCommands@2025!'),
+        $response = $this->post('/api/login', [
+            'password' => env("DEFAULT_PASSWORD")
         ]);
 
-        $response->assertStatus(Response::HTTP_BAD_REQUEST)
-            ->assertJson([
-                'message' => 'O email é obrigatório',
-            ]);
+        $response->assertStatus(Response::HTTP_BAD_REQUEST);
+        $responseData = json_decode($response->getContent(), true);
+        $this->assertEquals('O email é obrigatório', $responseData['message']);
     }
 
-    public function test_admin_permissions_load_correctly()
+    public function test_admin_permissions_load_correct()
     {
-        Auth::shouldReceive('attempt')
-            ->once()
-            ->with([
-                'email' => env('DEFAULT_EMAIL', 'admin@teste.com'),
-                'password' => env('DEFAULT_PASSWORD', 'admMyCommands@2025!'),
-            ])
-            ->andReturn(true);
-
-        Auth::shouldReceive('user')
-            ->once()
-            ->andReturn($this->mockUser);
-
-        $response = $this->postJson('/api/login', [
-            'email' => env('DEFAULT_EMAIL', 'admin@teste.com'),
-            'password' => env('DEFAULT_PASSWORD', 'admMyCommands@2025!'),
+        $response = $this->post('/api/login', [
+            'email' => env("DEFAULT_EMAIL"),
+            'password' => env("DEFAULT_PASSWORD")
         ]);
 
-        $response->assertStatus(Response::HTTP_OK)
-            ->assertJson([
-                'data' => [
-                    'permissions' => [
-                        'create-users',
-                        'get-users',
-                        'delete-users',
-                        'update-users',
-                    ],
-                ],
-            ]);
+        $response->assertStatus(Response::HTTP_OK)->assertJson([
+            'data' => [
+                'permissions' => [
+                    'create-users',
+                    'get-users',
+                    'delete-users',
+                    'update-users',
+                ]
+            ]
+        ]);
     }
 
     public function test_admin_can_logout()
     {
-        Auth::shouldReceive('logout')
-            ->once();
+        DB::statement('TRUNCATE TABLE users CASCADE;');
+        DB::statement('ALTER SEQUENCE users_id_seq RESTART WITH 1;');
 
-        $response = $this->postJson('/api/logout');
+        $user = User::factory()->create(['profile_id' => 1]);
+
+        $response = $this->actingAs($user)->post('/api/logout');
 
         $response->assertStatus(Response::HTTP_NO_CONTENT);
     }

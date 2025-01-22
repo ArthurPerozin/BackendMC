@@ -32,7 +32,7 @@ class AuthRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.required' => 'O email e obrigátorio',
+            'email.required' => 'O email é obrigatório',
             'email.string' => 'O email deve ser um texto',
             'email.email' => 'O email deve ser válido',
             'password.required' => 'A senha e obrigátorio',
