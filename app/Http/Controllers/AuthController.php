@@ -5,81 +5,72 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Http\Repositories\AuthRepository;
 use App\Http\Requests\AuthRequest;
+use App\Http\Services\Auth\AuthValidationService;
 use App\Http\Services\Auth\GetPermissionsService;
 use App\Http\Services\Auth\TokenRevocationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-/**
- * Class AuthController
- * 
- * This controller handles authentication-related actions such as login and logout.
- * It utilizes various services and repositories to perform these actions.
- * 
- * @package App\Http\Controllers
- * 
- * @property AuthRepository $authRepository
- * @property TokenRevocationService $tokenRevocationService
- * @property GetPermissionsService $getPermissionsService
- */
 class AuthController extends Controller
 {
     /**
-     * AuthController constructor.
-     * 
-     * @param AuthRepository $authRepository
-     * @param TokenRevocationService $tokenRevocationService
-     * @param GetPermissionsService $getPermissionsService
+     * @var TokenRevocationService
      */
+    private $tokenRevocationService;
+
+    /**
+     * @var GetPermissionsService
+     */
+    private $getPermissionsService;
+
+    /**
+     * @var AuthValidationService
+     */
+    private $authValidationService;
+
     public function __construct(
-        AuthRepository $authRepository,
         TokenRevocationService $tokenRevocationService,
-        GetPermissionsService $getPermissionsService
+        GetPermissionsService $getPermissionsService,
+        AuthValidationService $authValidationService
     ) {
-        $this->authRepository = $authRepository;
         $this->tokenRevocationService = $tokenRevocationService;
         $this->getPermissionsService = $getPermissionsService;
+        $this->authValidationService = $authValidationService;
     }
-
-    /**
-     * Handle the authentication process.
-     * 
-     * @param AuthRequest $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function store(AuthRequest $request)
+    
+    public function login(AuthRequest $request): JsonResponse
     {
-        $data = $request->only('email', 'password');
-        $authenticated = $this->authRepository->attempt($data);
-
-        if (!$authenticated) {
-            return $this->error("Não autorizado. Credenciais incorretas", Response::HTTP_UNAUTHORIZED);
+        try {
+            $credentials = $request->only('email', 'password');
+            $isAuthenticated = $this->authValidationService->handle($credentials);
+            if($isAuthenticated){
+                $user = $request->user();
+                $this->tokenRevocationService->handle($user);
+            }
+            $profile = $user->profile();
+            $permissionsUser = $this->getPermissionsService->handle($user->profile()->name);;
+            $token = $user->createToken($permissionsUser)->plainTextToken;
+            return $this->response('Autorizado', Response::HTTP_OK, [
+                'name' => $user->name,
+                'profile' => $profile->name,
+                'permissions' => $permissionsUser,
+                'token' => $token
+            ]);
+        } catch (\Throwable $error) {
+            return $this->error('Erro ao tentar fazer logout.', 500, ['exception' => $error->getMessage()]);
         }
-
-        $this->tokenRevocationService->handle($request);
-        $profile_id = $request->user()->profile_id;
-        $profile =$this->authRepository->findProfileById($profile_id);
-        $permissionsUser = $this->getPermissionsService->handle($profile->name);
-        $token = $request->user()->createToken('@academia', $permissionsUser);
-        $token = $token->plainTextToken;
-
-        return $this->response('Autorizado', Response::HTTP_OK, [
-            'name' =>  $request->user()->name,
-            'profile' => $profile->name,
-            'permissions' => $permissionsUser,
-            'token' => $token
-        ]);
     }
 
-    /**
-     * Handle the logout process.
-     * 
-     * @param Request $request
-     * @return \Illuminate\Http\Response
-     */
-    public function logout(Request $request)
+    public function logout(Request $request): JsonResponse
     {
-        $this->tokenRevocationService->handle($request);
-        return response('', Response::HTTP_NO_CONTENT, []);
+        try {
+            $user = $request->user();
+            $this->tokenRevocationService->handle($user);
+            return $this->success('Logout realizado com sucesso.');
+        } catch (\Throwable $error) {
+            return $this->error('Erro ao tentar fazer logout.', 500, ['exception' => $error->getMessage()]);
+        }
     }
+    
 }

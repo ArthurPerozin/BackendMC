@@ -2,12 +2,17 @@
 
 namespace App\Http\Services\Auth;
 
-use Illuminate\Http\Request;
+use App\Models\User;
+use Exception;
 
 class TokenRevocationService
 {
-    public function handle(Request $request)
+    public function handle(User $user): void
     {
-        $request->user()->tokens()->delete();
+        try {
+            $user->tokens()->delete();
+        } catch (\Throwable $e) {
+            throw new Exception("Falha ao revogar tokens: " . $e->getMessage(), 500, $e);
+        }
     }
 }
